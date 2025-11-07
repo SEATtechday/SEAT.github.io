@@ -1429,7 +1429,7 @@
         let activePlayer = null; // 현재 탐색 중인 플레이어 (드래그용, 주입된 플레이어 요소)
         let wasPlayingBeforeSeek = false; // 탐색 시작 전에 재생 중이었는지 확인
         
-        // ⭐️ NEW: 모바일 터치/드래그 후 발생하는 원치 않는 클릭 이벤트를 무시하기 위한 플래그
+        // ⭐️ NEW/MODIFIED: 모바일 터치/드래그 후 발생하는 원치 않는 클릭 이벤트를 무시하기 위한 플래그
         let blockOutsideClick = false; 
 
         // 1. 시간 포맷 변환 함수
@@ -1496,7 +1496,6 @@
 
             // 3. 주입된 플레이어 행 제거 및 🔊 버튼 표시
             if (injectedPlayerRow) {
-                // 이벤트 리스너 제거는 아래 handleSeekEnd에서 주로 처리합니다.
                 injectedPlayerRow.remove();
                 injectedPlayerRow = null;
             }
@@ -1606,6 +1605,12 @@
             progressBarContainer.addEventListener('mousedown', handleSeekStart);
             progressBarContainer.addEventListener('touchstart', handleSeekStart, { passive: false });
             
+            // ⭐️ NEW FIX: 탐색 중이나 탐색 직후 발생한 click 이벤트를 무조건 막음
+            progressBarContainer.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+            
             // e. UI 구성 및 삽입
             newCell.appendChild(activePlayerUI);
             newRow.appendChild(newCell);
@@ -1624,9 +1629,9 @@
             playPauseAudio(null, audioToActivate.id, activePlayerUI); 
         }
 
-        // 6. 플레이어 외부 터치/클릭 시 동작 (Request 2)
+        // 6. 플레이어 외부 터치/클릭 시 동작 
         function handleOutsideClick(event) {
-            // ⭐️ NEW: 탐색 종료 직후 발생한 click/touchend 이벤트는 무시
+            // ⭐️ NEW/MODIFIED: 탐색 종료 직후 발생한 click/touchend 이벤트는 무시 (만약을 대비)
             if (blockOutsideClick) {
                  return;
             }
@@ -1690,6 +1695,7 @@
 
                     // 탐색 전에 재생 중이었다면 다시 재생
                     if (wasPlayingBeforeSeek || !audio.paused) { 
+                        // 오디오를 재생하고 버튼 상태를 업데이트
                         audio.play().then(() => {
                             btn.textContent = '⏸';
                             btn.classList.add('playing');
@@ -1766,11 +1772,11 @@
             // 최종 위치 설정 및 오디오 currentTime 반영 (여기서 실제 재생 위치 이동 및 재생 상태 결정)
             setSeekTime(event, progressBarContainer, audio); 
 
-            // ⭐️ FIX: 탐색 종료 후 발생하는 click 이벤트를 handleOutsideClick에서 무시하도록 설정
+            // ⭐️ FIX: 탐색 종료 후 발생하는 click 이벤트를 handleOutsideClick에서 무시하도록 설정 (보조 방어)
             blockOutsideClick = true;
             setTimeout(() => {
                 blockOutsideClick = false;
-            }, 300); // 300ms 동안 블록 유지 (모바일 브라우저의 click 이벤트 지연 시간을 고려)
+            }, 300); // 300ms 동안 블록 유지
             
             // 이벤트 리스너 정리
             document.removeEventListener('mousemove', handleSeekMove);
@@ -1786,9 +1792,7 @@
             const allAudio = document.querySelectorAll('audio');
             let playedSuccessfully = false;
             allAudio.forEach(audio => {
-                // duration이 로드되지 않은 오디오만 시도
                 if (audio.readyState < 1 || isNaN(audio.duration)) {
-                    // 메타데이터 로드를 강제하기 위해 play/pause를 시도
                     audio.load();
                     audio.play().then(() => {
                         audio.pause(); 
@@ -1799,7 +1803,6 @@
                 }
             });
             
-            // 한 번이라도 성공했거나, 시도를 마쳤다면 리스너 제거
             if (playedSuccessfully) {
                  document.removeEventListener('touchstart', wakeUpAudioContext);
                  document.removeEventListener('click', wakeUpAudioContext);
