@@ -1141,7 +1141,7 @@
         }
     }
 
-    // 3. 프로그레스 바 클릭/드래그 핸들러 (이전 코드와 동일)
+    // 3. 프로그레스 바 클릭/드래그 핸들러
     function handleSeekStart(event) {
         event.stopPropagation();
         if (!currentlyActiveAudio || isNaN(currentlyActiveAudio.duration) || currentlyActiveAudio.duration === 0) return;
@@ -1255,7 +1255,7 @@
         }
     }
 
-    // 5. 오디오 상태 변경 리스너 등록 (이전 코드와 동일)
+    // 5. 오디오 상태 변경 리스너 등록
     function attachAudioListeners(audio, playerElement) {
         // timeupdate: 재생 중 시간 업데이트
         const timeUpdateHandler = () => {
@@ -1293,7 +1293,6 @@
         audio.addEventListener('error', errorHandler);
 
         // ⭐️ iOS Load Fix: 오디오가 준비되지 않았다면, 리스너를 붙인 후 로드를 시도합니다.
-        // 이는 iOS/Safari에서 duration을 읽어오기 위해 사용자 제스처 내에서 필요합니다.
         if (audio.readyState < 1) {
             audio.load();
         }
@@ -1301,37 +1300,38 @@
 
     // 6. 플레이어 UI 닫기 (이전 행 원상복구)
     function closePlayerUI(audioId) {
-        if (currentlyActiveAudio && currentlyActiveAudio.id !== audioId) {
+        // 현재 활성화된 오디오가 없거나 ID가 다르면 무시
+        if (!currentlyActiveAudio || currentlyActiveAudio.id !== audioId) {
             return;
         }
         
-        // 1. 현재 활성화된 오디오와 플레이어 상태 초기화
+        // 1. 플레이어 UI 비활성화
         if (activePlayer) {
             activePlayer.classList.remove('active');
         }
-        // ⭐️ 핵심: currentlyActiveAudio, activePlayer, originalAudioBox는 null로 초기화하지 않습니다.
-        // 이 상태를 유지해야 다음에 다시 클릭했을 때 Resume이 가능합니다.
-
+        
         // 2. 원래 오디오 박스(🔊) 복원
         if (originalAudioBox) {
             originalAudioBox.classList.remove('hidden');
         }
-        
+
         // 3. 삽입된 행 (player-row-injected) 제거 및 TD 내용 복원
-        if (injectedPlayerRow && originalParentTd) {
-            const tr = originalParentTd.closest('tr');
-            
-            // 오디오 요소를 원래의 TD로 다시 이동
-            originalParentTd.appendChild(tr.querySelector(`audio#${audioId}`));
-            // 플레이어 요소도 원래의 TD로 다시 이동
+        if (injectedPlayerRow && originalParentTd && currentlyActiveAudio && activePlayer) {
+            // 오디오 요소와 플레이어 요소를 원래의 TD로 다시 이동
+            originalParentTd.appendChild(currentlyActiveAudio);
             originalParentTd.appendChild(activePlayer); 
 
             // 삽입된 플레이어 행 제거
             injectedPlayerRow.remove();
         }
-        // ⭐️ 핵심: 아래 세 변수는 null로 초기화하지 않습니다!
-        // originalParentTd = null; 
-        // injectedPlayerRow = null;
+        
+        // 4. ⭐️ CRITICAL: 상태 변수 초기화 (다음 클릭을 '첫 클릭'으로 인식하도록)
+        // 이 부분에서 초기화해야 다른 오디오 클릭 시 충돌을 막고, 현재 오디오는 `toggleCustomAudio`의 if/else 로직에 따라 재클릭이 처리됨
+        currentlyActiveAudio = null;
+        activePlayer = null;
+        originalAudioBox = null;
+        originalParentTd = null;
+        injectedPlayerRow = null;
     }
 
     // 7. 오디오 켜기/끄기 (🔊 아이콘 클릭 핸들러)
@@ -1341,25 +1341,19 @@
 
         const audioToActivate = document.getElementById(audioId);
         const clickedRow = boxElement.closest('tr');
-        
         const playerElement = clickedRow.querySelector(`.custom-audio-player[data-audio-id="${audioId}"]`);
 
         // A. 토글/교체 로직 (이전 오디오 정리)
         if (currentlyActiveAudio && currentlyActiveAudio.id === audioId) {
-            // ⭐️ 수정됨: 현재 활성화된 오디오를 다시 클릭 -> 닫기 (시간은 유지)
-            resetAudioState(audioToActivate, **false**); // 시간을 초기화하지 않도록 false로 변경
+            // ⭐️ 1. 현재 오디오를 다시 클릭 -> 닫기 (요청 2: 시간 유지)
+            resetAudioState(audioToActivate, **false**); // false: 시간을 초기화하지 않음
             closePlayerUI(audioId);
-            return;
+            return; // closePlayerUI에서 모든 상태 변수가 null로 초기화됨
         } else if (currentlyActiveAudio) {
-            // 다른 오디오가 재생 중 -> 이전 오디오 닫고 현재 오디오 로드
+            // 2. 다른 오디오가 재생 중 -> 이전 오디오 정리 (시간 0으로 초기화)
             const previousAudioId = currentlyActiveAudio.id;
             resetAudioState(currentlyActiveAudio, true); // 이전 오디오는 시간을 0으로 초기화
-            closePlayerUI(previousAudioId);
-            
-            // 상태 초기화
-            currentlyActiveAudio = null;
-            activePlayer = null;
-            originalAudioBox = null;
+            closePlayerUI(previousAudioId); // closePlayerUI에서 모든 상태 변수가 null로 초기화됨
         }
 
         // B. 새로운 오디오 로드 및 UI 표시
@@ -1383,7 +1377,7 @@
         newTd.appendChild(audioToActivate); // 오디오 요소도 새 행으로 이동하여 구조 통일
         
         // 4. 플레이어 활성화 및 리스너 등록
-        playerElement.classList.add('active');
+        playerElement.classList.add('active'); // ⭐️ 프로그레스 바 표시
         attachAudioListeners(audioToActivate, playerElement);
 
         // 5. 프로그레스 바 리스너 연결 (새로 삽입되었으므로 매번 연결)
@@ -1393,12 +1387,11 @@
         progressBarContainer.removeEventListener('touchstart', handleSeekStart, { passive: true });
         progressBarContainer.addEventListener('touchstart', handleSeekStart, { passive: true });
 
-
-        // 6. 플레이/일시정지 버튼 초기 상태 업데이트 (시간은 이전 위치 유지)
-        // ⭐️ 수정됨: currentTime을 0으로 강제 초기화하는 코드를 제거했습니다.
+        // 6. 플레이/일시정지 버튼 초기 상태 업데이트
+        // currentlyActiveAudio.currentTime = 0; // ⭐️ 제거: 이 코드를 제거해야 닫았다 다시 열었을 때 시간 재개 가능
         updateTimeDisplay(currentlyActiveAudio, playerElement);
         
-        // 7. 자동 재생 시도
+        // 7. 자동 재생 시도 (이전 위치에서 재생 재개)
         playerElement.querySelector('.play-pause-btn').click();
     }
 
@@ -1420,13 +1413,14 @@
         // 그 외의 테이블 내부 클릭 (다른 행, 다른 셀) 시 현재 플레이어 닫기
         if (currentlyActiveAudio) {
             const currentAudioId = currentlyActiveAudio.id;
-            // ⭐️ 수정됨: 외부 클릭으로 닫을 때도 시간을 초기화하지 않습니다.
-            resetAudioState(currentlyActiveAudio, **false**); // Pass 'false' to preserve time
+            // ⭐️ 요청 1: 일시정지 및 시간 유지
+            resetAudioState(currentlyActiveAudio, **false**); 
             closePlayerUI(currentAudioId); 
+            // closePlayerUI 내에서 상태 변수가 초기화됩니다.
         }
     }
 
-    // 9. 오디오 컨텍스트 활성화 (iOS/Safari 자동 재생 정책 대응) (이전 코드와 동일)
+    // 9. 오디오 컨텍스트 활성화 (iOS/Safari 자동 재생 정책 대응)
     function wakeUpAudioContext() {
         const allAudio = document.querySelectorAll('audio');
         let playedSuccessfully = false;
